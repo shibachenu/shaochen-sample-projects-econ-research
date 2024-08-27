@@ -1,0 +1,1 @@
+{"frames":[{"func":"pam(hh_sampled, k = 3, metric = \"euclidean\", stand = FALSE)","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0},{"func":"inherits(x, \"dist\")","file":"","line_number":0,"end_line_number":0,"character_number":0,"end_character_number":0}],"message":"Error: object 'hh_sampled' not found\n"}

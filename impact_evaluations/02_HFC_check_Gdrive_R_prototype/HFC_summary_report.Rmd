@@ -1,0 +1,264 @@
+---
+title: "PSSN-II HFC and Variable Analysis"
+output: html_document
+date: "2024-07-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+# Load necessary libraries
+library(tidyverse)
+library(haven)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+source("global_env_setup.R")
+source("HFC_utils.R")
+#Export HFC output in spreadsheet
+#source("HFC_export_G_drive.R")
+```
+
+## Top 3 Items
+
+```{r overall_completion}
+hh_completion = read_dta(file.path(Sys.getenv("hfc_endline_data_dir"), "hh_completion.dta")) 
+over_completion = mean(hh_completion$hh_status_completed)
+```
+
+- Overall completion rate is `r over_completion*100`%
+- Supervisors with most outliers/enumerators: Enumerator7
+- Key variable of interests with most outliers: asset_roof
+
+
+## Completeness (Endline Pilot Data)
+Overall completion rate: `r over_completion`
+
+### Domain breakdown
+
+```{r domain_completion}
+domain_completion = read_dta(file.path(Sys.getenv("hfc_endline_data_dir"), "domain_completion.dta")) 
+
+domain_completion %>% 
+  arrange(desc(percent_compl_intw)) %>%
+  ggplot(aes(x = domain, y = percent_compl_intw*100)) +
+  geom_col(aes(fill=domain), width = 0.6) + coord_flip() +
+  labs(title = "Survey completition rate by domain", x = "% Completed", y="Domain (Mainland vs Zanzibar)")
+```
+
+### Village completion
+```{r village_completion}
+library(knitr)
+village_completion = read_dta(file.path(Sys.getenv("hfc_endline_data_dir"), "vlg_completion.dta")) %>%
+  mutate(percent_compl_intw = nb_hh_completed/hh_target)
+
+
+cols = c("village", "hh_target", "nb_hh_completed", "percent_compl_intw")
+
+
+village_completion_table = village_completion %>%
+  select(cols) %>%
+  arrange(desc(percent_compl_intw))
+  
+
+kable(village_completion_table, format = "markdown", col.names = c("Village", "# of hh targeted", "# of hh completed", "Completion rate %"))
+
+# 
+# village_overview %>% 
+#   arrange(percent_compl_intw) %>% 
+#   head(5) %>%
+#   ggplot(aes(x = village, y = percent_compl_intw)) +
+#   geom_col(aes(fill=village), width = 0.6) + coord_flip() +
+#   labs(title = "5 Villages with lowest completion rate", x = "Completion rate", y = "Village") 
+```
+
+
+### Enumerator breakdown
+```{r enum_completion}
+
+enum_completion = read_dta(file.path(Sys.getenv("hfc_endline_data_dir"), "enumerator_completion.dta")) %>%
+  mutate(nb_total = nb_completed + nb_duplicates + nb_missingipv + nb_missingtrack) %>%
+  mutate(percent_compl_intw = nb_completed/nb_total)
+
+
+enum_completion %>%
+  arrange(desc(percent_compl_intw)) %>%
+  head(5) %>%
+  ggplot(aes(x = enum_name, y = percent_compl_intw *100)) +
+  geom_col(aes(fill=enum_name), width = 0.6) + coord_flip()
+```
+
+## Outliers/boxplots
+
+```{r outliers, warning=FALSE, echo=FALSE}
+source("HFC_outliers.R")
+hh_plot_demo = hh_outlier_enhanced %>% filter(variable %in% c("main_resp_age", "head_age", "hh_size"))
+ggplot(hh_plot_demo, aes(x = variable, y = value)) + geom_boxplot(aes(fill =
+                                                                        variable))
+hh_plot_assets = hh_outlier_enhanced %>% filter(variable %in% c("assets_roof", "assets_wall", "hhassets_12"))
+ggplot(hh_plot_assets, aes(x = variable, y = value)) + geom_boxplot(aes(fill =
+                                                                          variable))
+
+hh_plot_consumption = hh_outlier_enhanced %>% filter(
+  variable %in% c(
+    "cereals_grain_amt",
+    "electricity_cost",
+    "spices_condmnt_amt",
+    "tobacco_amt"
+  )
+)
+ggplot(hh_plot_consumption, aes(x = variable, y = value)) + geom_boxplot(aes(fill = variable))
+
+
+hh_plot_duration = hh_outlier_enhanced %>% filter(variable %in% c("duration"))
+ggplot(hh_plot_duration, aes(x = variable, y = value)) + geom_boxplot(aes(fill = variable))
+```
+
+
+## Variables Analysis (Baseline Analysis Data)
+
+
+### Demographics
+
+```{r demographicis}
+#household size, percentage of female-headed households
+hh_constructed = read_dta(file.path(Sys.getenv("analysis_baseline_data_dir"), "HHSurvey.dta"))
+
+hh_demo = hh_constructed %>%
+  select(female_headed, tot_hhmbr) %>%
+  mutate(hh_size = as.numeric(tot_hhmbr))
+
+pct_female_hh = mean(hh_demo$female_headed, na.rm = TRUE)
+
+hh_demo %>%
+  na.omit(hh_size) %>%
+  ggplot(aes(x = hh_size)) +
+    geom_histogram(aes(y = ..density..), binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+    geom_density(color = "red", size = 1) +
+    labs(title = "Household size distribution", x = "HH size", y = "Density") +
+    theme_minimal()
+```
+
+% of Female household head HH is: `r pct_female_hh`
+
+
+### Income and Savings
+
+```{r income_savings}
+#Income (e.g., non-farm revenue), savings account balance
+hh_income = hh_constructed %>%
+  select(starts_with("income"))
+
+hh_income %>%
+  na.omit(income_raw) %>%
+  filter(income_raw>median(income_raw)-1.5*IQR(income_raw)&income_raw<median(income_raw)+1.5*IQR(income_raw)) %>%
+  ggplot(aes(x = income_raw)) +
+    geom_histogram(aes(y = ..density..), bins = 15, fill = "blue", color = "black", alpha = 0.7) +
+    geom_density(color = "red", size = 1) +
+    labs(title = "Household total income distribution", x = "HH total income (raw)", y = "Density") +
+    theme_minimal()
+
+
+#Savings
+hh_savings = read_dta(file.path(Sys.getenv("analysis_baseline_data_dir"), "cs_roster2_savingaccount.dta"))
+
+hh_savings %>%
+  na.omit(cs_totalsaving) %>%
+  filter(cs_totalsaving>median(cs_totalsaving)-1.5*IQR(cs_totalsaving)&cs_totalsaving<median(cs_totalsaving)+1.5*IQR(cs_totalsaving)) %>%
+  ggplot(aes(x = cs_totalsaving)) +
+    geom_histogram(aes(y = ..density..), bins = 15, fill = "blue", color = "black", alpha = 0.7) +
+    geom_density(color = "red", size = 1) +
+    labs(title = "Household total savings distribution", x = "HH total savings", y = "Density") +
+    theme_minimal()
+
+
+
+```
+
+### Expenditures 
+```{r expenditures}
+#Expenditure on health, food, and non-food consumption
+
+#Food
+food_consumption_aggregate = read_dta(file.path(Sys.getenv("analysis_baseline_data_dir"), "consumption_food_exp_aggr.dta"))
+
+food_consumption_aggregate %>%
+  na.omit(tot_food_value) %>%
+  filter(tot_food_value>median(tot_food_value)-1.5*IQR(tot_food_value)&tot_food_value<median(tot_food_value)+1.5*IQR(tot_food_value)) %>%
+  ggplot(aes(x = tot_food_value)) +
+    geom_histogram(aes(y = ..density..), bins = 15, fill = "blue", color = "black", alpha = 0.7) +
+    geom_density(color = "red", size = 1) +
+    labs(title = "Household total food consumption distribution", x = "HH total food consumption", y = "Density") +
+    theme_minimal()
+
+#Health consumption
+health = hh_constructed %>%
+  select(
+    exp_health_year_raw,
+    expenses_illness_year,
+    expenses_prevention_year,
+    expenses_medicine_year,
+    expenses_overnight_year,
+    expenses_traditional_year
+  )
+
+health %>%
+  na.omit(exp_health_year_raw) %>%
+  filter(exp_health_year_raw>0) %>%
+  filter(exp_health_year_raw>median(exp_health_year_raw)-1.5*IQR(exp_health_year_raw)&exp_health_year_raw<median(exp_health_year_raw)+1.5*IQR(exp_health_year_raw)) %>%
+  ggplot(aes(x = exp_health_year_raw)) +
+    geom_histogram(aes(y = ..density..), bins = 15, fill = "blue", color = "black", alpha = 0.7) +
+    geom_density(color = "red", size = 1) +
+    labs(title = "Household total health expenditure distribution", x = "HH total health expenditure", y = "Density") +
+    theme_minimal()
+
+#Non-Farm consumption
+
+
+
+
+
+```
+
+
+### Participation (End line pilot data) 
+
+```{r labor-participation}
+#Dummy variables: PW participation, EL participation, Received transfers from PW, Received transfers from EL, Transfer modality: Electronic vs manual, Income generating activities: business ownership, livestock ownership, agriculture cultivation, labor income through private paid work (not PW)
+
+hh_endline_data = read_dta(file.path(Sys.getenv("hfc_endline_data_dir"), "HHSurvey.dta"))
+
+#write.csv(colnames(hh_endline_data), "hh_survey_cols.csv")
+
+participation = hh_endline_data %>%
+  select(
+    pw_particip,
+    el_particip,
+    epay_particip
+  )
+
+participation_summary = data.frame(
+  pw_particip_rate = mean(participation$pw_particip, na.rm=TRUE),
+  el_particip_rate = mean(participation$el_particip, na.rm=TRUE),
+  epay_particip_rate = mean(participation$epay_particip, na.rm=TRUE)
+)
+
+participation_summary <- participation_summary %>% 
+  pivot_longer(
+    everything(),
+    names_to = "Participation",
+    values_to = "Rate"
+)
+
+participation_summary %>%
+  ggplot(aes(x = Participation, y = Rate *100)) +
+  geom_col(aes(fill=Participation), width = 0.6) + coord_flip()
+
+transfers = hh_endline_data %>%
+  select(bg_received,
+    cs_transfers,
+    )
+```
+

@@ -1,0 +1,16 @@
+"0","predicions = as.numeric(predict(nn_model, pca_test))
+# Assuming y_test is a list
+y_test <- unlist(y_test)
+# Now convert it to numeric (if needed)
+y_test <- as.numeric(y_test)
+# Check the result
+str(y_test)
+"
+"1"," num [1:807] "
+"1",""
+"1","0 0 0 0 0 0 0 0 0 0"
+"1",""
+"1"," ..."
+"1",""
+"1","
+"

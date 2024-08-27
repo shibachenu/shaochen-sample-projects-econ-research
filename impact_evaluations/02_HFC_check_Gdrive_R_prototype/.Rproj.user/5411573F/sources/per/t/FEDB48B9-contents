@@ -1,0 +1,194 @@
+---
+title: "PSSN-II Prediction Models"
+author: "Shaochen Huang"
+date: "2024-08-20"
+output: html_document
+---
+
+## Overview
+This analysis compares several prediction models to uncover some insights on why secondary education enrollment is low, the models can be extended and used for other outcomes later on, e.g. end line PW participation. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+setwd("C:/Users/wb629244/PSSN/pssn2livelihood/03_Endline/03_Endline_HFCs/02_HFC_check_Gdrive_R_prototype")
+
+# Load necessary libraries
+library(tidyverse)
+library(haven)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+source("global_env_setup.R")
+source("HFC_utils.R")
+```
+
+
+## Prediction Models 
+
+The analysis in this section aims at explore some predictions on some key variables of research interests: namely secondary school enrollment and income
+
+```{r predction_data_loading}
+library("caret")       # For training models
+# Filter out columns with too many missing values (e.g. >20%)
+hh_constructed = read_dta(file.path(Sys.getenv("analysis_baseline_data_dir"), "HHSurvey.dta"))
+hh_numeric <- hh_constructed %>% select(where(is.numeric))
+
+
+threshold = 0.2
+hh_pred <- hh_numeric  %>%
+  select(where(~ mean(is.na(.)) <= threshold))
+#secondary enrollment rate
+hh_pred = hh_pred %>%
+  filter(nb_children_14andabove > 0) %>%
+  transform(secondary_enrollment_rate = (nb_child_ordsecondary +nb_child_advsecondary)/ nb_children_14andabove) %>%
+  filter(!is.na(secondary_enrollment_rate)) %>%
+  select(-nb_aged_6to13, -nb_aged_14to19, -nb_child_ordsecondary, -nb_children_under14, -nb_child_advsecondary,-pssn_childsecondary_value, - nb_children_14andabove, -nb_child_primary, -years_education)
+
+#income outcome: income_raw, nfa_totincome_raw (non-farming income)
+# Splitting data into training and testing
+set.seed(123) # For reproducibility
+index <- sample(1:nrow(hh_pred), 0.7 * nrow(hh_pred))
+train <- hh_pred[index, ] %>% na.omit(train)
+test <- hh_pred[-index, ] %>% na.omit(test)
+```
+
+### Secondary Enrollment Rate
+#### Linear Regression
+
+```{r linear_regression}
+library("knitr")
+library("kableExtra")
+
+lm_model = lm(secondary_enrollment_rate~., data=train)
+# Extract coefficients and summary
+model_summary <- summary(lm_model)
+coefficients <- model_summary$coefficients
+
+# Filter for significant coefficients (e.g., p-value < 0.05)
+significant_coeffs <- coefficients[coefficients[, "Pr(>|t|)"] <= 0.01, ]
+
+# Sort coefficients by their absolute value
+significant_coeffs <- cbind(significant_coeffs, Abs_Estimate = abs(significant_coeffs[, "Estimate"]))
+significant_coeffs_sorted <- significant_coeffs[order(significant_coeffs[, "Abs_Estimate"], decreasing = TRUE), ]
+significant_coeffs_sorted <- significant_coeffs_sorted[, -ncol(significant_coeffs_sorted)]
+
+# Convert to a data frame and format
+significant_coeffs_sorted_df <- as.data.frame(significant_coeffs_sorted)
+significant_coeffs_sorted_df <- significant_coeffs_sorted_df %>%
+  mutate(across(where(is.numeric), ~ formatC(., format = "f", digits = 3)))
+
+# Print the table using knitr::kable() or kableExtra
+kable(significant_coeffs_sorted_df, caption = "Sorted Significant Linear Regression Coefficients") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+predicions = predict(lm_model, test)
+
+mse_lm <- mean((predicions - test$secondary_enrollment_rate)^2, na.rm = TRUE)
+```
+
+#### Random Forest
+```{r random-forest}
+library("randomForest") # For Random Forest model
+train_clean = na.omit(train)
+test_clean = na.omit(test)
+sample_pct = 0.3
+train_clean_sampled <- train_clean %>% sample_frac(sample_pct)
+
+rf_model = randomForest(secondary_enrollment_rate~., data=train_clean_sampled)
+print(rf_model)
+
+predicions = predict(rf_model, test)
+mse_rf <- mean((predicions - test$secondary_enrollment_rate)^2, na.rm = TRUE)
+```
+
+
+#### Support Vector Machine (SVM)
+```{r svm}
+library("e1071")        # For SVM model
+svm_model = svm(secondary_enrollment_rate~., data=train)
+print(svm_model)
+
+predicions = predict(svm_model, test)
+mse_svm <- mean((predicions - test$secondary_enrollment_rate)^2, na.rm = TRUE)
+```
+
+
+#### Neural Network 
+```{r neural_network}
+library(nnet)
+# Identify columns with zero variance
+constant_columns <- sapply(train_clean, function(x) var(x) == 0)
+
+# Remove these columns from the dataset
+train_clean <- train_clean[, !constant_columns]
+x_train = train_clean %>%
+  select(-secondary_enrollment_rate)
+y_train = train_clean %>%
+  select(secondary_enrollment_rate)
+
+
+constant_columns <- sapply(test_clean, function(x) var(x) == 0)
+
+test_clean <- test_clean[, !constant_columns]
+x_test = test_clean %>%
+  select(-secondary_enrollment_rate)
+y_test = test_clean %>%
+  select(secondary_enrollment_rate)
+
+
+
+# Now perform PCA
+pca_result <- prcomp(x_train, scale. = TRUE)
+
+# Extract the proportion of variance explained by each PC
+explained_variance <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+# Cumulative variance plot
+cumulative_variance <- cumsum(explained_variance)
+plot(cumulative_variance, xlab = "Number of Principal Components", 
+     ylab = "Cumulative Proportion of Variance Explained", 
+     type = "b", 
+     main = "Cumulative Variance Plot")
+
+#Pick the first 80 PCs based on PCA plots
+N = 80
+pca_train = cbind(pca_result$x[, 1:N], y_train)
+
+nn_model <- nnet(secondary_enrollment_rate ~ ., data = pca_train, size = 10)
+print(nn_model)
+
+pca_test = prcomp(x_test,  scale. = TRUE)
+pca_test = cbind(pca_test$x[, 1:N], y_test)
+
+predicions = as.numeric(predict(nn_model, pca_test))
+# Assuming y_test is a list
+y_test <- unlist(y_test)
+# Now convert it to numeric (if needed)
+y_test <- as.numeric(y_test)
+
+mse_nn <- mean((predicions - y_test)^2, na.rm = TRUE)
+```
+
+
+### Compare and evaluate these prediction models 
+
+
+```{r evaluate_models}
+# Load the kableExtra package
+library(kableExtra)
+
+mse_df = data.frame(
+  MSE_lm = mse_lm,
+  MSE_rf = mse_rf,
+  MSE_svm = mse_svm,
+  MSE_nn = mse_nn
+)
+
+colnames(mse_df) = c("Linear Regression", "Random Forest", "Support Vector Machine", "Neural Network")
+
+# Display the data frame as a nicely formatted table
+kable(mse_df, caption = "Performance (MSE) of different prediction models") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```

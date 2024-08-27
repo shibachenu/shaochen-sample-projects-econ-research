@@ -1,0 +1,10 @@
+# Set global environment variables
+
+Sys.setenv(
+  analysis_baseline_data_dir = "C:/Users/wb629244/PSSN/Baseline/Analysis/05_Constructed_Data",
+  hfc_baseline_data_dir = "C:/Users/wb629244/PSSN/Baseline/HFC/05_HFC_Data",
+  hfc_baseline_output_dir = "C:/Users/wb629244/PSSN/Baseline/HFC/06_HFCs_Output",
+  hfc_endline_data_dir = "C:/Users/wb629244/PSSN/Endline/3_Encrypted_Endline_Data/04_Pilot/04_HFC_Data"
+)
+
+

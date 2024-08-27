@@ -1,0 +1,4 @@
+"0",""
+"0","predicions = predict(lm_model, test)"
+"0",""
+"0","mse_lm <- mean((predicions - test$secondary_enrollment_rate)^2, na.rm = TRUE)"
