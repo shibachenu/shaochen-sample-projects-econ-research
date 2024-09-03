@@ -1,5 +1,0 @@
-"0","#Some optimality analysis for # of clusters: a.k.a. silhouette"
-"0","#Give the size of the dataset, sample only 20% of these households"
-"0","sample_pct = 0.1"
-"0","hh_sampled <- hh_filtered %>% sample_frac(sample_pct)"
-"0","fviz_nbclust(hh_sampled, pam, method =""silhouette"")+theme_minimal()"
